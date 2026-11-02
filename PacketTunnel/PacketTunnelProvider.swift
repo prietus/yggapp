@@ -37,15 +37,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         store.lastAddress = address
         log.info("node up at \(address, privacy: .public), mtu \(self.node.mtu())")
 
-        // Route all of 200::/7 (node addresses + routed /64 subnets) into the tunnel.
-        let ipv6 = NEIPv6Settings(addresses: [address], networkPrefixLengths: [7])
-        ipv6.includedRoutes = [NEIPv6Route(destinationAddress: "200::", networkPrefixLength: 7)]
-        let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "::1")
-        settings.ipv6Settings = ipv6
-        settings.mtu = NSNumber(value: node.mtu())
-
         do {
-            try await setTunnelNetworkSettings(settings)
+            try await setTunnelNetworkSettings(networkSettings())
             let fd = ygg_find_utun_fd()
             guard fd >= 0 else { throw TunnelError.utunNotFound }
             try node.attachTUN(fd)
@@ -70,6 +63,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             case .addPeer(let uri): try node.addPeer(uri)
             case .removePeer(let uri): try node.removePeer(uri)
             case .retryPeers: node.retryPeers()
+            case .reloadDNS: try await setTunnelNetworkSettings(networkSettings())
             }
             response = status()
         } catch {
@@ -81,6 +75,27 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     // MARK: - Helpers
+
+    /// Routes 200::/7 into the tunnel and sends only ALFIS zones to the Yggdrasil resolvers.
+    private func networkSettings() -> NEPacketTunnelNetworkSettings {
+        // 200::/7 covers node addresses (200::/8) and routed /64 subnets (300::/8).
+        let ipv6 = NEIPv6Settings(addresses: [node.address()], networkPrefixLengths: [7])
+        ipv6.includedRoutes = [NEIPv6Route(destinationAddress: "200::", networkPrefixLength: 7)]
+
+        let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "::1")
+        settings.ipv6Settings = ipv6
+        settings.mtu = NSNumber(value: node.mtu())
+
+        let servers = store.dnsServers.filter(AlfisDNS.isValidServer)
+        if !servers.isEmpty {
+            let dns = NEDNSSettings(servers: servers)
+            dns.matchDomains = AlfisDNS.zones   // split DNS: only these zones
+            dns.matchDomainsNoSearch = true     // don't append them as search suffixes
+            settings.dnsSettings = dns
+        }
+        log.info("dns: \(servers.count) servers for \(AlfisDNS.zones.count) zones")
+        return settings
+    }
 
     private func status() -> TunnelStatus {
         let peers = (try? JSONDecoder().decode([PeerStatus].self, from: Data(node.peersJSON().utf8))) ?? []
