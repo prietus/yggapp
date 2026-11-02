@@ -3,6 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var tunnel: TunnelManager
     @State private var newPeer = ""
+    @State private var showPublicPeers = false
 
     var body: some View {
         NavigationStack {
@@ -52,6 +53,11 @@ struct ContentView: View {
                             .onSubmit(add)
                         Button("Add", action: add).disabled(newPeer.isEmpty)
                     }
+                    Button {
+                        showPublicPeers = true
+                    } label: {
+                        Label("Browse public peers", systemImage: "globe.europe.africa")
+                    }
                 }
 
                 DNSSection()
@@ -68,6 +74,7 @@ struct ContentView: View {
                 }
             }
             .navigationTitle("YggApp")
+            .sheet(isPresented: $showPublicPeers) { PublicPeersView() }
             .refreshable { await tunnel.retryPeers() }
         }
         .task { await tunnel.load() }
