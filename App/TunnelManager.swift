@@ -1,5 +1,6 @@
 import Foundation
 import NetworkExtension
+import SwiftUI
 
 /// Owns the VPN configuration and talks to the packet tunnel extension.
 @MainActor
@@ -193,6 +194,44 @@ final class TunnelManager: ObservableObject {
         guard let reply, let decoded = try? JSONDecoder().decode(TunnelStatus.self, from: reply) else { return }
         status = decoded
         if let err = decoded.error { lastError = err }
+    }
+}
+
+/// What the user cares about: is the node actually on the network?
+enum NetworkState: Equatable {
+    case tunnel(NEVPNStatus)   // VPN not up yet (off, connecting, …)
+    case starting              // tunnel up, no status from the extension yet
+    case noPeers
+    case connectingPeers(configured: Int)
+    case online(peersUp: Int, routes: Int)
+
+    var label: String {
+        switch self {
+        case .tunnel(let s): s.label
+        case .starting: "Starting…"
+        case .noPeers: "No peers — add one below"
+        case .connectingPeers(let n): "Connecting to \(n) peer\(n == 1 ? "" : "s")…"
+        case .online(let up, let routes):
+            "Online · \(up) peer\(up == 1 ? "" : "s") · \(routes) route\(routes == 1 ? "" : "s")"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .online: .green
+        case .noPeers, .connectingPeers, .starting: .orange
+        case .tunnel(let s): [.connecting, .reasserting].contains(s) ? .orange : .gray
+        }
+    }
+}
+
+extension TunnelManager {
+    var networkState: NetworkState {
+        guard isConnected else { return .tunnel(vpnStatus) }
+        guard let status else { return .starting }
+        let up = status.peers.filter(\.up).count
+        if up > 0 { return .online(peersUp: up, routes: status.routingEntries) }
+        return peers.isEmpty ? .noPeers : .connectingPeers(configured: peers.count)
     }
 }
 

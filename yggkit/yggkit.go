@@ -248,6 +248,15 @@ func (n *Node) SetHostsJSON(hostsJSON string) error {
 
 func (n *Node) HostCount() int { return n.hosts.len() }
 
+// RoutingEntries is the size of the node's routing table: 0 means isolated,
+// growing numbers mean it is learning the network.
+func (n *Node) RoutingEntries() int {
+	if c, err := n.running(); err == nil {
+		return int(c.GetSelf().RoutingEntries)
+	}
+	return 0
+}
+
 // peerJSON is the stable shape the Swift side decodes.
 type peerJSON struct {
 	URI       string  `json:"uri"`

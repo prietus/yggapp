@@ -39,6 +39,7 @@ struct TunnelStatus: Codable, Equatable {
     var peers: [PeerStatus]
     var dnsAddress: String
     var hostCount: Int
+    var routingEntries: Int
     var error: String?
 }
 

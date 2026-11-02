@@ -39,6 +39,9 @@ func TestNodeLifecycle(t *testing.T) {
 	if err := n.SetHostsJSON(`{"forum.ygg":"21a:34aa:c782:3ad2:1bf8:73f8:141:66e8"}`); err != nil || n.HostCount() != 1 {
 		t.Fatalf("SetHostsJSON: %d %v", n.HostCount(), err)
 	}
+	if n.RoutingEntries() < 0 {
+		t.Fatal("RoutingEntries negative")
+	}
 	if n.MTU() <= 0 {
 		t.Fatal("MTU not set")
 	}

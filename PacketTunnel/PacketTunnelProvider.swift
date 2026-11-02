@@ -110,7 +110,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let peers = (try? JSONDecoder().decode([PeerStatus].self, from: Data(node.peersJSON().utf8))) ?? []
         return TunnelStatus(address: node.address(), subnet: node.subnet(),
                             publicKey: node.publicKey(), peers: peers,
-                            dnsAddress: node.dnsAddress(), hostCount: node.hostCount())
+                            dnsAddress: node.dnsAddress(), hostCount: node.hostCount(),
+                            routingEntries: node.routingEntries())
     }
 
     /// Loads (or creates on first run) the node config and injects the saved peers.

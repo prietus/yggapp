@@ -12,9 +12,13 @@ struct ContentView: View {
                         get: { tunnel.isConnected || tunnel.vpnStatus == .connecting },
                         set: { on in Task { await tunnel.setConnected(on) } }
                     )) {
-                        VStack(alignment: .leading) {
+                        VStack(alignment: .leading, spacing: 2) {
                             Text("Yggdrasil")
-                            Text(tunnel.vpnStatus.label).font(.caption).foregroundStyle(.secondary)
+                            let state = tunnel.networkState
+                            HStack(spacing: 6) {
+                                Circle().fill(state.color).frame(width: 7, height: 7)
+                                Text(state.label).font(.caption).foregroundStyle(.secondary)
+                            }
                         }
                     }
                     .disabled(tunnel.isBusy)
