@@ -6,7 +6,13 @@ struct YggApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView().environmentObject(tunnel)
+            TabView {
+                ContentView()
+                    .tabItem { Label("Network", systemImage: "point.3.connected.trianglepath.dotted") }
+                BrowserView()
+                    .tabItem { Label("Browse", systemImage: "safari") }
+            }
+            .environmentObject(tunnel)
         }
     }
 }
