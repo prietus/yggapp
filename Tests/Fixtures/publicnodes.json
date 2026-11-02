@@ -1,0 +1,14 @@
+{
+  "france.md": {
+    "tls://51.15.204.214:54321": {"up": true, "key": "aa", "imported": 1705748407, "updated": 1793653203, "last_seen": 1793653203, "proto_minor": 5, "states": "***", "response_ms": 30},
+    "tcp://62.210.85.80:39565": {"up": true, "response_ms": 45, "last_seen": 1793653203},
+    "quic://quic.example.fr:443": {"up": true}
+  },
+  "united-kingdom.md": {
+    "tls://uk.example.org:443?key=f91b909f": {"up": true, "response_ms": 80}
+  },
+  "armenia.md": {
+    "tls://ygg-evn-1tls.wgos.org:443": {"up": false, "imported": 1738868411, "updated": 1793653203, "states": "   "}
+  },
+  "estonia.md": {}
+}

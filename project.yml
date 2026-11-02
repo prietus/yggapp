@@ -35,6 +35,20 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.prietus.yggapp
     dependencies:
       - target: PacketTunnel
+    scheme:
+      testTargets: [YggAppTests]
+  YggAppTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"  # XCTest itself requires iOS 17
+    sources:
+      - Tests
+    dependencies:
+      - target: YggApp
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.prietus.yggapp.tests
   PacketTunnel:
     type: app-extension
     platform: iOS
