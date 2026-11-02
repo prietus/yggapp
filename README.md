@@ -2,7 +2,14 @@
 
 A native iOS client for the [Yggdrasil Network](https://yggdrasil-network.github.io/): an end-to-end encrypted IPv6 overlay mesh. Your iPhone gets its own `200::/7` address and can reach any Yggdrasil node or service directly, alongside your normal internet.
 
-> **Status: alpha.** Every feature below has been tested on a real iPhone, but the app is not on the App Store or TestFlight. To use it you need to build it yourself (see [Building](#building)). "YggApp" is a working name.
+> **Status: alpha.** Every feature below has been tested on a real iPhone, but the app is not on the App Store or TestFlight. To use it you need to build it yourself (see [Building](#building)).
+
+<p align="center">
+  <img src="docs/screenshots/network.png" width="200" alt="Network tab: online with 4 peers and 11 routes">
+  <img src="docs/screenshots/dns-memory.png" width="200" alt="Local .ygg resolver with 41 names, and extension memory at 9 MB of 50 MB">
+  <img src="docs/screenshots/browser.png" width="200" alt="Built-in browser showing forum.ygg">
+  <img src="docs/screenshots/speedtest.png" width="200" alt="LibreSpeed over Yggdrasil: 29.3 Mbit/s down, 17.9 Mbit/s up">
+</p>
 
 ## Features
 
