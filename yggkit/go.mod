@@ -1,4 +1,4 @@
-module github.com/carlosprieto/yggapp/yggkit
+module github.com/prietus/yggapp/yggkit
 
 go 1.27.3
 
