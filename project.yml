@@ -1,0 +1,58 @@
+name: YggApp
+options:
+  bundleIdPrefix: com.prietus
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    DEVELOPMENT_TEAM: LFTD9T269J
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  YggApp:
+    type: application
+    platform: iOS
+    sources: [App, Shared]
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: YggApp
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+    entitlements:
+      path: App/YggApp.entitlements
+      properties:
+        com.apple.developer.networking.networkextension: [packet-tunnel-provider]
+        com.apple.security.application-groups: [group.com.prietus.yggapp]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.prietus.yggapp
+    dependencies:
+      - target: PacketTunnel
+  PacketTunnel:
+    type: app-extension
+    platform: iOS
+    sources: [PacketTunnel, Shared]
+    info:
+      path: PacketTunnel/Info.plist
+      properties:
+        CFBundleDisplayName: YggApp Tunnel
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PacketTunnelProvider
+    entitlements:
+      path: PacketTunnel/PacketTunnel.entitlements
+      properties:
+        com.apple.developer.networking.networkextension: [packet-tunnel-provider]
+        com.apple.security.application-groups: [group.com.prietus.yggapp]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.prietus.yggapp.tunnel
+        SWIFT_OBJC_BRIDGING_HEADER: PacketTunnel/PacketTunnel-Bridging-Header.h
+        OTHER_LDFLAGS: [-lresolv]
+    dependencies:
+      - framework: Frameworks/Yggkit.xcframework
+        embed: false

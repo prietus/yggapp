@@ -1,0 +1,5 @@
+Frameworks/
+YggApp.xcodeproj/
+build/
+DerivedData/
+*.xcuserstate
