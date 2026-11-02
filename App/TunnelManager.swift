@@ -62,68 +62,54 @@ final class TunnelManager: ObservableObject {
 
     func retryPeers() async { await send(.retryPeers) }
 
-    // MARK: - ALFIS DNS
+    // MARK: - ALFIS DNS (local resolver fed from the web directory)
 
-    @Published private(set) var dnsServers: [String] = SharedStore().dnsServers
+    @Published private(set) var hostsUpdated: Date? = SharedStore().alfisHostsUpdated
+    @Published private(set) var hostsCount: Int = SharedStore.hostsCount()
+    @Published private(set) var isSyncingHosts = false
     @Published private(set) var dnsTest: DNSTestResult?
 
     enum DNSTestResult: Equatable {
         case running
-        case resolved(name: String, address: String, ms: Int)
-        case failed(name: String, reason: String)
+        /// `system`: through iOS (proves split DNS); `direct`: raw query to the local resolver.
+        case done(system: Result<String, ResolveError>, direct: DNSProbe.Outcome?, ms: Int)
     }
 
-    func addDNSServer(_ server: String) async {
-        let server = server.trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-        guard AlfisDNS.isValidServer(server) else {
-            lastError = "DNS server must be a Yggdrasil IPv6 address (200::/7)"
-            return
+    /// Downloads the directory over the tunnel and hands the table to the extension.
+    func syncHosts() async {
+        guard isConnected, !isSyncingHosts else { return }
+        isSyncingHosts = true
+        defer { isSyncingHosts = false }
+        do {
+            let result = try await DirectorySync.fetch()
+            let json = try JSONSerialization.data(withJSONObject: result.hosts, options: [.sortedKeys])
+            store.alfisHostsJSON = String(decoding: json, as: UTF8.self)
+            store.alfisHostsUpdated = Date()
+            hostsUpdated = store.alfisHostsUpdated
+            hostsCount = result.hosts.count
+            await send(.reloadHosts)
+        } catch {
+            lastError = "Directory sync: \(error.localizedDescription)"
         }
-        guard !dnsServers.contains(server) else { return }
-        await setDNSServers(dnsServers + [server])
     }
 
-    func removeDNSServer(_ server: String) async {
-        await setDNSServers(dnsServers.filter { $0 != server })
+    /// Called whenever the tunnel comes up: refresh the table if missing or stale.
+    private func syncHostsIfStale() {
+        let stale = hostsUpdated.map { Date().timeIntervalSince($0) > AlfisDNS.refreshInterval } ?? true
+        if stale || hostsCount == 0 { Task { await syncHosts() } }
     }
 
-    func resetDNSServers() async { await setDNSServers(AlfisDNS.defaultServers) }
-
-    private func setDNSServers(_ servers: [String]) async {
-        dnsServers = servers
-        store.dnsServers = servers
-        if isConnected { await send(.reloadDNS) }
-    }
-
-    /// Resolves a known ALFIS name through the system resolver, which iOS routes
-    /// to the tunnel's DNS servers because of matchDomains.
     func testDNS(name: String = AlfisDNS.testName) async {
         dnsTest = .running
         let start = Date()
-        let result = await Task.detached { Self.resolveAAAA(name) }.value
-        let ms = Int(Date().timeIntervalSince(start) * 1000)
-        switch result {
-        case .success(let addr): dnsTest = .resolved(name: name, address: addr, ms: ms)
-        case .failure(let err): dnsTest = .failed(name: name, reason: err.message)
-        }
+        async let system = Task.detached { Self.resolveAAAA(name) }.value
+        let dnsAddress = status?.dnsAddress ?? ""
+        async let direct: DNSProbe.Outcome? = dnsAddress.isEmpty ? nil : DNSProbe.query(server: dnsAddress, name: name)
+        let (s, d) = await (system, direct)
+        dnsTest = .done(system: s, direct: d, ms: Int(Date().timeIntervalSince(start) * 1000))
     }
 
-    /// Per-server result of a direct UDP query (nil entry = probe running).
-    @Published private(set) var dnsProbes: [String: DNSProbe.Outcome?] = [:]
-
-    func probeDNSServers(name: String = AlfisDNS.testName) async {
-        let servers = dnsServers
-        dnsProbes = Dictionary(uniqueKeysWithValues: servers.map { ($0, nil) })
-        await withTaskGroup(of: (String, DNSProbe.Outcome).self) { group in
-            for s in servers {
-                group.addTask { (s, await DNSProbe.query(server: s, name: name)) }
-            }
-            for await (s, outcome) in group { dnsProbes[s] = outcome }
-        }
-    }
-
-    struct ResolveError: Error { let message: String }
+    struct ResolveError: Error, Equatable { let message: String }
 
     nonisolated private static func resolveAAAA(_ name: String) -> Result<String, ResolveError> {
         var hints = addrinfo()
@@ -176,6 +162,7 @@ final class TunnelManager: ObservableObject {
         vpnStatus = manager?.connection.status ?? .invalid
         if isConnected {
             startPolling()
+            syncHostsIfStale()
         } else {
             pollTask?.cancel()
             pollTask = nil
@@ -220,6 +207,15 @@ extension NEVPNStatus {
         case .disconnecting: "Disconnecting…"
         @unknown default: "Unknown"
         }
+    }
+}
+
+extension SharedStore {
+    static func hostsCount() -> Int {
+        guard let json = SharedStore().alfisHostsJSON,
+              let dict = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: String]
+        else { return 0 }
+        return dict.count
     }
 }
 

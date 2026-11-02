@@ -22,6 +22,9 @@ targets:
         CFBundleDisplayName: YggApp
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        # Yggdrasil services are plain http:// on IPv6 literals (crypto is in the overlay).
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
     entitlements:
       path: App/YggApp.entitlements
       properties:

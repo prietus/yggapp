@@ -33,6 +33,12 @@ func TestNodeLifecycle(t *testing.T) {
 	if n.AttachTUN(-1) == nil {
 		t.Fatal("AttachTUN with bad fd should fail")
 	}
+	if da := n.DNSAddress(); !strings.HasPrefix(da, "3") || !strings.HasSuffix(da, "::53") {
+		t.Fatalf("DNSAddress()=%q", da)
+	}
+	if err := n.SetHostsJSON(`{"forum.ygg":"21a:34aa:c782:3ad2:1bf8:73f8:141:66e8"}`); err != nil || n.HostCount() != 1 {
+		t.Fatalf("SetHostsJSON: %d %v", n.HostCount(), err)
+	}
 	if n.MTU() <= 0 {
 		t.Fatal("MTU not set")
 	}

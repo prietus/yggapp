@@ -6,24 +6,20 @@ enum AppIDs {
     static let tunnelBundleID = "com.prietus.yggapp.tunnel"
 }
 
-/// ALFIS (blockchain DNS) zones. Only queries for these go to the Yggdrasil
-/// resolvers; everything else keeps using the system DNS.
+/// ALFIS (blockchain DNS) zones. Only queries for these go to the in-tunnel
+/// resolver (answered by yggkit); everything else keeps using the system DNS.
+/// The published community ALFIS resolvers were all dead as of 2026-11-02.
 enum AlfisDNS {
     static let zones = ["ygg", "anon", "btn", "conf", "index", "merch", "mirror", "mob", "screen", "srv"]
 
-    /// Community resolvers published for ALFIS (2021–22 sources); user-editable
-    /// because there is no current official list.
-    static let defaultServers = ["302:db60::53", "302:7991::53", "300:6223::53"]
+    /// Yggdrasil Web directory; its "Domain name (ALFIS)" column seeds the name table.
+    static let directoryURL = URL(string: "http://[21e:a51c:885b:7db0:166e:927:98cd:d186]/")!
 
-    /// Known-good name from the Yggdrasil web directory, used by the DNS test.
+    /// Re-download the directory when the table is older than this.
+    static let refreshInterval: TimeInterval = 24 * 3600
+
+    /// Known name from the directory, used by the DNS test.
     static let testName = "forum.ygg"
-
-    static func isValidServer(_ s: String) -> Bool {
-        var addr = in6_addr()
-        guard inet_pton(AF_INET6, s, &addr) == 1 else { return false }
-        // Must be inside 200::/7, i.e. reachable through the tunnel.
-        return addr.__u6_addr.__u6_addr8.0 & 0xFE == 0x02
-    }
 }
 
 /// App ↔ extension messages (sent with NETunnelProviderSession.sendProviderMessage).
@@ -32,8 +28,8 @@ enum TunnelRequest: Codable {
     case addPeer(String)
     case removePeer(String)
     case retryPeers
-    /// Re-applies tunnel network settings after the DNS server list changed.
-    case reloadDNS
+    /// Reload the name table from SharedStore.alfisHostsJSON.
+    case reloadHosts
 }
 
 struct TunnelStatus: Codable, Equatable {
@@ -41,6 +37,8 @@ struct TunnelStatus: Codable, Equatable {
     var subnet: String
     var publicKey: String
     var peers: [PeerStatus]
+    var dnsAddress: String
+    var hostCount: Int
     var error: String?
 }
 
@@ -74,9 +72,15 @@ struct SharedStore {
         nonmutating set { defaults.set(newValue, forKey: "configJSON") }
     }
 
-    var dnsServers: [String] {
-        get { defaults.stringArray(forKey: "dnsServers") ?? AlfisDNS.defaultServers }
-        nonmutating set { defaults.set(newValue, forKey: "dnsServers") }
+    /// {"forum.ygg": "21a:…", …} built from the web directory.
+    var alfisHostsJSON: String? {
+        get { defaults.string(forKey: "alfisHosts") }
+        nonmutating set { defaults.set(newValue, forKey: "alfisHosts") }
+    }
+
+    var alfisHostsUpdated: Date? {
+        get { defaults.object(forKey: "alfisHostsUpdated") as? Date }
+        nonmutating set { defaults.set(newValue, forKey: "alfisHostsUpdated") }
     }
 
     /// Last known address, so the app can show it while disconnected.

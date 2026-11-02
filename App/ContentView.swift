@@ -3,7 +3,6 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var tunnel: TunnelManager
     @State private var newPeer = ""
-    @State private var newDNS = ""
 
     var body: some View {
         NavigationStack {
@@ -51,7 +50,7 @@ struct ContentView: View {
                     }
                 }
 
-                DNSSection(newServer: $newDNS)
+                DNSSection()
 
                 let inbound = tunnel.status?.peers.filter { !tunnel.peers.contains($0.uri) } ?? []
                 if !inbound.isEmpty {
@@ -77,64 +76,51 @@ struct ContentView: View {
     }
 }
 
-/// Split-DNS resolvers for ALFIS zones (.ygg, .anon, …) plus a live resolution test.
+/// Local resolver for ALFIS zones (.ygg, .anon, …) fed from the web directory.
 private struct DNSSection: View {
     @EnvironmentObject private var tunnel: TunnelManager
-    @Binding var newServer: String
 
     var body: some View {
         Section {
-            ForEach(tunnel.dnsServers, id: \.self) { server in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(server).font(.callout.monospaced())
-                    if let probe = tunnel.dnsProbes[server] {
-                        if let outcome = probe {
-                            Text(outcome.summary)
-                                .font(.caption)
-                                .foregroundStyle(outcome.reachable ? .green : .red)
-                        } else {
-                            Text("probing…").font(.caption).foregroundStyle(.secondary)
-                        }
+            if let addr = tunnel.status?.dnsAddress.nilIfEmpty {
+                LabeledContent("Resolver") {
+                    Text(addr).font(.caption.monospaced()).textSelection(.enabled)
+                }
+            }
+            LabeledContent("Names") {
+                VStack(alignment: .trailing) {
+                    Text("\(tunnel.hostsCount)")
+                    if let updated = tunnel.hostsUpdated {
+                        Text(updated, style: .relative).font(.caption2).foregroundStyle(.secondary)
                     }
                 }
             }
-            .onDelete { idx in
-                let servers = idx.map { tunnel.dnsServers[$0] }
-                Task { for s in servers { await tunnel.removeDNSServer(s) } }
+
+            Button {
+                Task { await tunnel.syncHosts() }
+            } label: {
+                HStack {
+                    Text("Update from directory")
+                    Spacer()
+                    if tunnel.isSyncingHosts { ProgressView() }
+                }
             }
-            HStack {
-                TextField("302:db60::53", text: $newServer)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .keyboardType(.asciiCapable)
-                    .font(.callout.monospaced())
-                    .onSubmit(add)
-                Button("Add", action: add).disabled(newServer.isEmpty)
-            }
+            .disabled(!tunnel.isConnected || tunnel.isSyncingHosts)
 
             Button {
                 Task { await tunnel.testDNS() }
             } label: {
-                HStack {
+                HStack(alignment: .top) {
                     Text("Test \(AlfisDNS.testName)")
                     Spacer()
                     testResult
                 }
             }
             .disabled(!tunnel.isConnected || tunnel.dnsTest == .running)
-
-            Button("Probe each server directly") {
-                Task { await tunnel.probeDNSServers() }
-            }
-            .disabled(!tunnel.isConnected)
-
-            if tunnel.dnsServers != AlfisDNS.defaultServers {
-                Button("Restore default servers") { Task { await tunnel.resetDNSServers() } }
-            }
         } header: {
             Text("DNS (.ygg)")
         } footer: {
-            Text("Only \(AlfisDNS.zones.map { "." + $0 }.joined(separator: " ")) names are sent to these servers; all other lookups use your normal DNS.")
+            Text("Names come from the Yggdrasil Web directory and are answered inside the app. Only \(AlfisDNS.zones.map { "." + $0 }.joined(separator: " ")) lookups use it; everything else uses your normal DNS.")
         }
     }
 
@@ -144,20 +130,21 @@ private struct DNSSection: View {
             EmptyView()
         case .running:
             ProgressView()
-        case .resolved(_, let address, let ms):
-            VStack(alignment: .trailing) {
-                Text(address).font(.caption.monospaced()).foregroundStyle(.green)
+        case .done(let system, let direct, let ms):
+            VStack(alignment: .trailing, spacing: 2) {
+                switch system {
+                case .success(let addr):
+                    Text(addr).font(.caption.monospaced()).foregroundStyle(.green)
+                case .failure(let err):
+                    Text("iOS: \(err.message)").font(.caption).foregroundStyle(.red).lineLimit(2)
+                }
+                if let direct {
+                    Text("direct: \(direct.summary)").font(.caption2)
+                        .foregroundStyle(direct.reachable ? Color.secondary : Color.red)
+                }
                 Text("\(ms) ms").font(.caption2).foregroundStyle(.secondary)
             }
-        case .failed(_, let reason):
-            Text(reason).font(.caption).foregroundStyle(.red).lineLimit(2)
         }
-    }
-
-    private func add() {
-        let s = newServer
-        newServer = ""
-        Task { await tunnel.addDNSServer(s) }
     }
 }
 

@@ -47,7 +47,9 @@ type Node struct {
 	core   *core.Core
 	rwc    *ipv6rwc.ReadWriteCloser
 	tun    *tun.TunAdapter
+	dns    *dnsInterceptor
 	logger *log.Logger
+	hosts  hostTable // survives restarts; filled by SetHostsJSON
 }
 
 func NewNode() *Node { return &Node{} }
@@ -119,11 +121,12 @@ func (n *Node) AttachTUN(fd int32) error {
 	if n.tun != nil {
 		return errors.New("tun already attached")
 	}
-	t, err := tun.New(n.rwc, n.logger, tun.FileDescriptor(fd), tun.InterfaceMTU(n.rwc.MTU()))
+	d := newDNSInterceptor(n.rwc, dnsAddrFor(n.core), &n.hosts)
+	t, err := tun.New(d, n.logger, tun.FileDescriptor(fd), tun.InterfaceMTU(n.rwc.MTU()))
 	if err != nil {
 		return fmt.Errorf("tun: %w", err)
 	}
-	n.tun = t
+	n.tun, n.dns = t, d
 	return nil
 }
 
@@ -136,8 +139,11 @@ func (n *Node) Stop() error {
 	if n.tun != nil {
 		_ = n.tun.Stop()
 	}
+	if n.dns != nil {
+		n.dns.shutdown()
+	}
 	n.core.Stop()
-	n.core, n.rwc, n.tun = nil, nil, nil
+	n.core, n.rwc, n.tun, n.dns = nil, nil, nil, nil
 	return nil
 }
 
@@ -217,6 +223,30 @@ func (n *Node) RetryPeers() {
 		c.RetryPeersNow()
 	}
 }
+
+// DNSAddress is the in-tunnel resolver address (<subnet>::53) answered locally
+// for ALFIS names. Point the tunnel's DNS settings at it.
+func (n *Node) DNSAddress() string {
+	c, err := n.running()
+	if err != nil {
+		return ""
+	}
+	a := dnsAddrFor(c)
+	return net.IP(a[:]).String()
+}
+
+// SetHostsJSON replaces the local name table ({"forum.ygg": "21a:…"});
+// invalid entries are skipped (see HostCount). Works before or after Start.
+func (n *Node) SetHostsJSON(hostsJSON string) error {
+	m, err := parseHostsJSON(hostsJSON)
+	if err != nil {
+		return err
+	}
+	n.hosts.set(m)
+	return nil
+}
+
+func (n *Node) HostCount() int { return n.hosts.len() }
 
 // peerJSON is the stable shape the Swift side decodes.
 type peerJSON struct {

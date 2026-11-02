@@ -32,6 +32,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     override func startTunnel(options: [String: NSObject]?) async throws {
         let config = try loadConfig(withPeers: store.peers)
         try node.start(config, logger: coreLogger)
+        reloadHosts()
 
         let address = node.address()
         store.lastAddress = address
@@ -63,7 +64,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             case .addPeer(let uri): try node.addPeer(uri)
             case .removePeer(let uri): try node.removePeer(uri)
             case .retryPeers: node.retryPeers()
-            case .reloadDNS: try await setTunnelNetworkSettings(networkSettings())
+            case .reloadHosts: reloadHosts()
             }
             response = status()
         } catch {
@@ -86,21 +87,30 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         settings.ipv6Settings = ipv6
         settings.mtu = NSNumber(value: node.mtu())
 
-        let servers = store.dnsServers.filter(AlfisDNS.isValidServer)
-        if !servers.isEmpty {
-            let dns = NEDNSSettings(servers: servers)
-            dns.matchDomains = AlfisDNS.zones   // split DNS: only these zones
-            dns.matchDomainsNoSearch = true     // don't append them as search suffixes
-            settings.dnsSettings = dns
-        }
-        log.info("dns: \(servers.count) servers for \(AlfisDNS.zones.count) zones")
+        // yggkit answers <subnet>::53 itself from the local name table.
+        let dnsAddress = node.dnsAddress()
+        let dns = NEDNSSettings(servers: [dnsAddress])
+        dns.matchDomains = AlfisDNS.zones   // split DNS: only these zones
+        dns.matchDomainsNoSearch = true     // don't append them as search suffixes
+        settings.dnsSettings = dns
+        log.info("dns: \(dnsAddress, privacy: .public) for \(AlfisDNS.zones.count) zones")
         return settings
+    }
+
+    private func reloadHosts() {
+        do {
+            try node.setHostsJSON(store.alfisHostsJSON ?? "{}")
+            log.info("hosts: \(self.node.hostCount()) names loaded")
+        } catch {
+            log.error("hosts: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     private func status() -> TunnelStatus {
         let peers = (try? JSONDecoder().decode([PeerStatus].self, from: Data(node.peersJSON().utf8))) ?? []
         return TunnelStatus(address: node.address(), subnet: node.subnet(),
-                            publicKey: node.publicKey(), peers: peers)
+                            publicKey: node.publicKey(), peers: peers,
+                            dnsAddress: node.dnsAddress(), hostCount: node.hostCount())
     }
 
     /// Loads (or creates on first run) the node config and injects the saved peers.
