@@ -39,6 +39,9 @@ func TestNodeLifecycle(t *testing.T) {
 	if err := n.SetHostsJSON(`{"forum.ygg":"21a:34aa:c782:3ad2:1bf8:73f8:141:66e8"}`); err != nil || n.HostCount() != 1 {
 		t.Fatalf("SetHostsJSON: %d %v", n.HostCount(), err)
 	}
+	if GoMemoryBytes() <= 0 || GoHeapBytes() <= 0 || GoHeapBytes() > GoMemoryBytes() {
+		t.Fatalf("memory metrics: total %d heap %d", GoMemoryBytes(), GoHeapBytes())
+	}
 	if n.RoutingEntries() < 0 {
 		t.Fatal("RoutingEntries negative")
 	}

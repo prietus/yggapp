@@ -28,6 +28,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private let node = YggkitNewNode()!
     private let coreLogger = CoreLogger()
     private let store = SharedStore()
+    private var peakFootprint: UInt64 = 0
 
     override func startTunnel(options: [String: NSObject]?) async throws {
         let config = try loadConfig(withPeers: store.peers)
@@ -77,6 +78,18 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
     // MARK: - Helpers
 
+    /// The footprint jetsam uses to decide when to kill the extension.
+    private static func physFootprint() -> UInt64 {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let kr = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        return kr == KERN_SUCCESS ? info.phys_footprint : 0
+    }
+
     /// Routes 200::/7 into the tunnel and sends only ALFIS zones to the Yggdrasil resolvers.
     private func networkSettings() -> NEPacketTunnelNetworkSettings {
         // 200::/7 covers node addresses (200::/8) and routed /64 subnets (300::/8).
@@ -108,20 +121,31 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
     private func status() -> TunnelStatus {
         let peers = (try? JSONDecoder().decode([PeerStatus].self, from: Data(node.peersJSON().utf8))) ?? []
+        let footprint = Self.physFootprint()
+        peakFootprint = max(peakFootprint, footprint)
+        let memory = MemoryStats(footprint: footprint, peakFootprint: peakFootprint,
+                                 goTotal: YggkitGoMemoryBytes(), goHeap: YggkitGoHeapBytes())
         return TunnelStatus(address: node.address(), subnet: node.subnet(),
                             publicKey: node.publicKey(), peers: peers,
                             dnsAddress: node.dnsAddress(), hostCount: node.hostCount(),
-                            routingEntries: node.routingEntries())
+                            routingEntries: node.routingEntries(), memory: memory)
     }
 
     /// Loads (or creates on first run) the node config and injects the saved peers.
     private func loadConfig(withPeers peers: [String]) throws -> String {
-        var json = store.configJSON
+        var json = try NodeKeychain.load()
+        if json == nil, let legacy = store.configJSON {
+            // One-time migration from App Group defaults; keeps the node's address.
+            try NodeKeychain.save(legacy)
+            store.configJSON = nil
+            json = legacy
+            log.info("config migrated to keychain")
+        }
         if json == nil {
             var err: NSError?
             let generated = YggkitGenerateConfig(&err)
             if let err { throw TunnelError.config(err.localizedDescription) }
-            store.configJSON = generated
+            try NodeKeychain.save(generated)
             json = generated
         }
         guard let data = json?.data(using: .utf8),

@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/url"
 	"runtime/debug"
+	"runtime/metrics"
 	"sync"
 
 	"github.com/gologme/log"
@@ -333,3 +334,20 @@ func AddressForConfig(configJSON string) string {
 }
 
 func Version() string { return version.BuildVersion() }
+
+var memSamples = []metrics.Sample{
+	{Name: "/memory/classes/total:bytes"},
+	{Name: "/memory/classes/heap/objects:bytes"},
+}
+
+// GoMemoryBytes is all memory mapped by the Go runtime (heap, stacks, metadata).
+func GoMemoryBytes() int64 {
+	metrics.Read(memSamples)
+	return int64(memSamples[0].Value.Uint64())
+}
+
+// GoHeapBytes is memory occupied by live and not-yet-swept heap objects.
+func GoHeapBytes() int64 {
+	metrics.Read(memSamples)
+	return int64(memSamples[1].Value.Uint64())
+}

@@ -62,6 +62,10 @@ struct ContentView: View {
 
                 DNSSection()
 
+                if let memory = tunnel.status?.memory {
+                    MemorySection(memory: memory)
+                }
+
                 let inbound = tunnel.status?.peers.filter { !tunnel.peers.contains($0.uri) } ?? []
                 if !inbound.isEmpty {
                     Section("Other connections") {
@@ -156,6 +160,41 @@ private struct DNSSection: View {
                 Text("\(ms) ms").font(.caption2).foregroundStyle(.secondary)
             }
         }
+    }
+}
+
+/// Live memory of the tunnel extension against the ~50 MB jetsam limit.
+private struct MemorySection: View {
+    let memory: MemoryStats
+
+    var body: some View {
+        Section("Extension memory") {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text(mb(memory.footprint)).font(.body.monospacedDigit())
+                    Text("of \(mb(MemoryStats.limit))").foregroundStyle(.secondary)
+                    Spacer()
+                    Text("peak \(mb(memory.peakFootprint))").font(.caption.monospacedDigit())
+                        .foregroundStyle(color(memory.peakFootprint))
+                }
+                ProgressView(value: Double(min(memory.footprint, MemoryStats.limit)),
+                             total: Double(MemoryStats.limit))
+                    .tint(color(memory.footprint))
+            }
+            LabeledContent("Go runtime") {
+                Text("\(mb(UInt64(max(0, memory.goTotal)))) (heap \(mb(UInt64(max(0, memory.goHeap)))))")
+                    .font(.caption.monospacedDigit())
+            }
+        }
+    }
+
+    private func mb(_ bytes: UInt64) -> String {
+        String(format: "%.1f MB", Double(bytes) / 1_048_576)
+    }
+
+    private func color(_ bytes: UInt64) -> Color {
+        let f = Double(bytes) / Double(MemoryStats.limit)
+        return f < 0.6 ? .green : f < 0.8 ? .orange : .red
     }
 }
 

@@ -40,7 +40,18 @@ struct TunnelStatus: Codable, Equatable {
     var dnsAddress: String
     var hostCount: Int
     var routingEntries: Int
+    var memory: MemoryStats
     var error: String?
+}
+
+/// Network extension memory, in bytes. iOS kills packet tunnels at ~50 MB footprint.
+struct MemoryStats: Codable, Equatable {
+    static let limit: UInt64 = 50 << 20
+
+    var footprint: UInt64       // phys_footprint: what jetsam measures
+    var peakFootprint: UInt64   // highest footprint seen since the tunnel started
+    var goTotal: Int64          // all memory mapped by the Go runtime
+    var goHeap: Int64           // live + unswept Go heap objects
 }
 
 struct PeerStatus: Codable, Equatable, Identifiable {
@@ -58,8 +69,8 @@ struct PeerStatus: Codable, Equatable, Identifiable {
 }
 
 /// State persisted in the App Group so both processes see it.
-/// Spike note: the node config (with its private key) lives in App Group
-/// defaults; move it to a shared Keychain item before shipping.
+/// The node config (private key) is NOT here: it lives in the extension's
+/// keychain (NodeKeychain). `configJSON` only exists to migrate old installs.
 struct SharedStore {
     private let defaults = UserDefaults(suiteName: AppIDs.appGroup)!
 
@@ -68,6 +79,7 @@ struct SharedStore {
         nonmutating set { defaults.set(newValue, forKey: "peers") }
     }
 
+    /// Legacy location of the node config; read once and cleared by the extension.
     var configJSON: String? {
         get { defaults.string(forKey: "configJSON") }
         nonmutating set { defaults.set(newValue, forKey: "configJSON") }
