@@ -35,6 +35,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.prietus.yggapp
     dependencies:
       - target: PacketTunnel
+      - target: YggWidgets
     scheme:
       testTargets: [YggAppTests]
   YggAppTests:
@@ -73,3 +74,26 @@ targets:
     dependencies:
       - framework: Frameworks/Yggkit.xcframework
         embed: false
+  YggWidgets:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "18.0"  # ControlWidget
+    sources:
+      - Widgets
+      - Shared/Shared.swift
+      - Shared/VPNControl.swift
+    info:
+      path: Widgets/Info.plist
+      properties:
+        CFBundleDisplayName: YggApp
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: Widgets/YggWidgets.entitlements
+      properties:
+        # Needed to load/start/stop the VPN profile from the widget process.
+        com.apple.developer.networking.networkextension: [packet-tunnel-provider]
+        com.apple.security.application-groups: [group.com.prietus.yggapp]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.prietus.yggapp.widget

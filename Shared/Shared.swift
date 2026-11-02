@@ -4,6 +4,8 @@ import Foundation
 enum AppIDs {
     static let appGroup = "group.com.prietus.yggapp"
     static let tunnelBundleID = "com.prietus.yggapp.tunnel"
+    /// Control Center toggle (YggWidgets extension).
+    static let controlKind = "com.prietus.yggapp.control"
 }
 
 /// ALFIS (blockchain DNS) zones. Only queries for these go to the in-tunnel
@@ -94,6 +96,12 @@ struct SharedStore {
     var alfisHostsUpdated: Date? {
         get { defaults.object(forKey: "alfisHostsUpdated") as? Date }
         nonmutating set { defaults.set(newValue, forKey: "alfisHostsUpdated") }
+    }
+
+    /// Keep the tunnel up on any network via On Demand rules. Defaults to on.
+    var autoConnect: Bool {
+        get { defaults.object(forKey: "autoConnect") as? Bool ?? true }
+        nonmutating set { defaults.set(newValue, forKey: "autoConnect") }
     }
 
     /// Last known address, so the app can show it while disconnected.

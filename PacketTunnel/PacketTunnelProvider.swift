@@ -29,6 +29,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private let coreLogger = CoreLogger()
     private let store = SharedStore()
     private var peakFootprint: UInt64 = 0
+    private var pathObservation: NSKeyValueObservation?
+    private var lastPath: String?
 
     override func startTunnel(options: [String: NSObject]?) async throws {
         let config = try loadConfig(withPeers: store.peers)
@@ -44,6 +46,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             let fd = ygg_find_utun_fd()
             guard fd >= 0 else { throw TunnelError.utunNotFound }
             try node.attachTUN(fd)
+            watchNetworkChanges()
         } catch {
             log.error("start failed: \(error.localizedDescription, privacy: .public)")
             try? node.stop()
@@ -53,7 +56,30 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
     override func stopTunnel(with reason: NEProviderStopReason) async {
         log.info("stopping, reason \(reason.rawValue)")
+        pathObservation = nil
         try? node.stop()
+    }
+
+    /// The phone woke from sleep: sockets may be stale, redial peers now.
+    override func wake() {
+        log.info("wake: retrying peers")
+        node.retryPeers()
+    }
+
+    /// Wi-Fi <-> cellular or a new Wi-Fi: peer connections on the old interface
+    /// are dead, so redial immediately instead of waiting for the core's backoff.
+    private func watchNetworkChanges() {
+        pathObservation = observe(\.defaultPath, options: [.new]) { provider, _ in
+            guard let path = provider.defaultPath, path.status == .satisfied else { return }
+            let key = "\(path.isExpensive)-\(path.description)"
+            guard key != provider.lastPath else { return }
+            let first = provider.lastPath == nil
+            provider.lastPath = key
+            if !first {
+                log.info("network changed: retrying peers")
+                provider.node.retryPeers()
+            }
+        }
     }
 
     override func handleAppMessage(_ messageData: Data) async -> Data? {

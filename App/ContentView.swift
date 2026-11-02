@@ -24,6 +24,12 @@ struct ContentView: View {
                     }
                     .disabled(tunnel.isBusy)
 
+                    Toggle("Connect automatically", isOn: Binding(
+                        get: { tunnel.autoConnect },
+                        set: { on in Task { await tunnel.setAutoConnect(on) } }
+                    ))
+                    .font(.callout)
+
                     if let address = tunnel.displayAddress {
                         LabeledContent("Address") {
                             Text(address).font(.caption.monospaced()).textSelection(.enabled)
