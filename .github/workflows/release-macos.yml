@@ -14,7 +14,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: macos-14  # newer macOS images (latest, 26) often queue for minutes; 14 starts in seconds
     permissions:
       contents: write   # to create the GitHub release on tags
     env:
