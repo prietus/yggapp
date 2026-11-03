@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: macos-26  # same image as the other release workflows on this account
     timeout-minutes: 60
     env:
       # Build numbers must keep increasing: macOS only replaces the system
