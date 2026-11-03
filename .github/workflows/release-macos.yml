@@ -1,0 +1,117 @@
+name: macOS release
+
+# Builds YggApp for macOS, signs it with Developer ID, notarizes and staples it,
+# and uploads the DMG. Pushing a tag like v0.1.0 also publishes a GitHub release.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Marketing version (e.g. 0.1.0)
+        required: true
+        default: "0.1.0"
+
+permissions:
+  contents: write   # to create the GitHub release on tags
+
+concurrency:
+  group: release-macos-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      # Build numbers must keep increasing: macOS only replaces the system
+      # extension when its CFBundleVersion changes.
+      BUILD_NUMBER: ${{ github.run_number }}0
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select newest Xcode
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: yggkit/go.mod
+          cache-dependency-path: yggkit/go.sum
+
+      - name: Install gomobile and XcodeGen
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest golang.org/x/mobile/cmd/gobind@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          "$(go env GOPATH)/bin/gomobile" init
+          brew install xcodegen
+
+      - name: Version
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          else
+            echo "VERSION=${{ inputs.version }}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Import signing certificate and profiles
+        env:
+          CERT_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          PROFILE_APP_B64: ${{ secrets.MACOS_PROFILE_APP }}
+          PROFILE_TUNNEL_B64: ${{ secrets.MACOS_PROFILE_TUNNEL }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 24)
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          echo "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/cert.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning "$KEYCHAIN"
+
+          echo "$PROFILE_APP_B64" | base64 --decode > "$RUNNER_TEMP/app.provisionprofile"
+          echo "$PROFILE_TUNNEL_B64" | base64 --decode > "$RUNNER_TEMP/tunnel.provisionprofile"
+          {
+            echo "KEYCHAIN=$KEYCHAIN"
+            echo "PROFILE_APP=$RUNNER_TEMP/app.provisionprofile"
+            echo "PROFILE_TUNNEL=$RUNNER_TEMP/tunnel.provisionprofile"
+          } >> "$GITHUB_ENV"
+
+      - name: Build, sign, notarize
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: release/release-macos.sh
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build/release/build.log
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: YggApp-${{ env.VERSION }}
+          path: build/release/YggApp-${{ env.VERSION }}.dmg
+          if-no-files-found: error
+
+      - name: Publish GitHub release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "build/release/YggApp-$VERSION.dmg" \
+            --title "YggApp $VERSION" --generate-notes
+
+      - name: Remove signing keychain
+        if: always()
+        run: |
+          [ -n "${KEYCHAIN:-}" ] && security delete-keychain "$KEYCHAIN" || true
