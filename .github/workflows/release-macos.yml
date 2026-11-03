@@ -21,6 +21,7 @@ jobs:
       # Build numbers must keep increasing: macOS only replaces the system
       # extension when its CFBundleVersion changes.
       BUILD_NUMBER: ${{ github.run_number }}0
+      HAS_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -101,9 +102,37 @@ jobs:
         if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
+        # Re-runnable: if the release already exists, replace the DMG.
         run: |
-          gh release create "$GITHUB_REF_NAME" "build/release/YggApp-$VERSION.dmg" \
-            --title "YggApp $VERSION" --generate-notes
+          DMG="build/release/YggApp-$VERSION.dmg"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$DMG" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "$DMG" --title "YggApp $VERSION" --generate-notes
+          fi
+
+      # Point prietus/homebrew-tap's Casks/yggapp.rb at this release, so
+      # `brew upgrade --cask yggapp` picks it up. Needs HOMEBREW_TAP_TOKEN: a
+      # fine-grained token with Contents read/write on prietus/homebrew-tap.
+      # The cask is rendered from release/yggapp.rb.in, so the first run
+      # creates it. Skips cleanly when the secret isn't set.
+      - name: Update Homebrew cask
+        if: github.ref_type == 'tag' && env.HAS_TAP_TOKEN == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          SHA256=$(shasum -a 256 "build/release/YggApp-$VERSION.dmg" | cut -d' ' -f1)
+          sed -e "s/@VERSION@/$VERSION/" -e "s/@SHA256@/$SHA256/" release/yggapp.rb.in > "$RUNNER_TEMP/yggapp.rb"
+          API=repos/prietus/homebrew-tap/contents/Casks/yggapp.rb
+          BLOB=$(gh api "$API" --jq .sha 2>/dev/null || true)
+          if [ -n "$BLOB" ] && gh api "$API" --jq .content | base64 --decode | cmp -s - "$RUNNER_TEMP/yggapp.rb"; then
+            echo "Cask already at $VERSION"
+            exit 0
+          fi
+          gh api -X PUT "$API" \
+            -f message="yggapp $VERSION" \
+            -f content="$(base64 -i "$RUNNER_TEMP/yggapp.rb")" \
+            ${BLOB:+-f sha="$BLOB"} --jq '.commit.html_url'
 
       - name: Remove signing keychain
         if: always()

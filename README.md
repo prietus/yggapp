@@ -8,6 +8,14 @@ A native iOS and macOS client for the [Yggdrasil Network](https://yggdrasil-netw
 
 **[Download the latest YggApp for macOS (.dmg)](https://github.com/prietus/yggapp/releases/latest)**: signed with Developer ID and notarized by Apple.
 
+Or install it with [Homebrew](https://brew.sh):
+
+```sh
+brew install --cask prietus/tap/yggapp
+```
+
+Upgrade with `brew upgrade --cask yggapp`.
+
 - **Requirements:** macOS 14 Sonoma or later, Apple silicon or Intel.
 - **Install:** open the DMG and drag **YggApp** to **Applications**. It has to be in Applications for macOS to load its network extension.
 - **First launch:** YggApp lives in the menu bar (the connected-nodes icon), not the Dock. macOS will ask you to allow its network extension in **System Settings → General → Login Items & Extensions**, and the first time you connect it asks to add a VPN configuration.
