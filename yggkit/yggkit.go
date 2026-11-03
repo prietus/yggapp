@@ -122,7 +122,7 @@ func (n *Node) AttachTUN(fd int32) error {
 	if n.tun != nil {
 		return errors.New("tun already attached")
 	}
-	d := newDNSInterceptor(n.rwc, dnsAddrFor(n.core), &n.hosts)
+	d := newDNSInterceptor(n.rwc, dnsAddrFor(n.core), &n.hosts, parseResolvers(defaultResolvers))
 	t, err := tun.New(d, n.logger, tun.FileDescriptor(fd), tun.InterfaceMTU(n.rwc.MTU()))
 	if err != nil {
 		return fmt.Errorf("tun: %w", err)

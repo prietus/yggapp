@@ -34,7 +34,7 @@ The menu bar panel has the same switches as the iOS app: connect, connect automa
 
 - **Packet tunnel**: Yggdrasil 0.5.x runs in a Network Extension. The Go core reads and writes the `utun` file descriptor directly, so packets never pass through Swift.
 - **Public peer picker**: online peers from [publicpeers.neilalexander.dev](https://publicpeers.neilalexander.dev/), listed by country. Latency is measured from your device and peers are sorted by it. "Add fastest" adds the two fastest peers.
-- **`.ygg` names without external resolvers**: names are answered inside the tunnel. The name table is built from the [Yggdrasil Web directory](http://[21e:a51c:885b:7db0:166e:927:98cd:d186]/) (its ALFIS domain column) and refreshed every 24 h. Split DNS sends only ALFIS zones (`.ygg .anon .btn .conf .index .merch .mirror .mob .screen .srv`) to it, so all other lookups use your normal DNS.
+- **`.ygg` and other ALFIS names**: a resolver inside the tunnel answers names from the [Yggdrasil Web directory](http://[21e:a51c:885b:7db0:166e:927:98cd:d186]/) instantly (its ALFIS domain column, refreshed every 24 h) and forwards every other name, over Yggdrasil, to the [ALFIS resolvers run by Revertron](https://dns.r3v.dev). If one doesn't answer it tries the next, and it keeps using whichever answered last. If they are all down, directory names still work. Split DNS sends only ALFIS zones (`.ygg .anon .btn .conf .index .merch .mirror .mob .screen .srv`) there, so all other lookups use your normal DNS.
 - **Built-in browser**: you can type `forum.ygg` or a bare IPv6 address without `http://`, and the address bar suggests names from the table as you type. The start page is the directory.
 - **Auto-connect**: uses iOS On Demand rules, so the tunnel stays up across Wi-Fi and cellular. It redials peers right away when the network changes or the phone wakes. A manual disconnect stays off.
 - **Control Center toggle** (iOS 18+): also works from the Lock Screen and the Action button.
@@ -96,7 +96,7 @@ This runs the Go tests (with `-race`) and the Swift unit tests on a simulator: d
 
 ## Known limitations
 
-- **Names**: only names listed in the Web directory resolve. The community ALFIS resolvers listed on the Yggdrasil services page were all unreachable when I tested them (November 2026). Full ALFIS support would mean syncing its blockchain.
+- **Names**: names outside the Web directory depend on Revertron's ALFIS resolvers being reachable. The older ones listed on the Yggdrasil services page were shut down in November 2024. Those resolvers also filter ads (AdGuard Home).
 - **LAN discovery**: there is no multicast peer discovery, because it needs Apple's multicast entitlement.
 - **Distribution**: Apple only allows VPN-type apps on the App Store from developers enrolled as organizations.
 

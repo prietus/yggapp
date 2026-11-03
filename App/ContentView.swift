@@ -147,7 +147,7 @@ private struct DNSSection: View {
         } header: {
             Text("DNS (.ygg)")
         } footer: {
-            Text("Names come from the Yggdrasil Web directory and are answered inside the app. Only \(AlfisDNS.zones.map { "." + $0 }.joined(separator: " ")) lookups use it; everything else uses your normal DNS.")
+            Text("Names in the Yggdrasil Web directory are answered inside the app; other names go to the ALFIS resolvers inside Yggdrasil (dns.r3v.dev). Only \(AlfisDNS.zones.map { "." + $0 }.joined(separator: " ")) lookups use this; everything else uses your normal DNS.")
         }
     }
 

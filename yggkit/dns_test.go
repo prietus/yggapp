@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"io"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,7 +16,15 @@ import (
 // fakeRWC stands in for Yggdrasil: records writes, serves reads from a channel.
 type fakeRWC struct {
 	reads  chan []byte
+	addr   address.Address
+	mu     sync.Mutex
 	writes [][]byte
+}
+
+func (f *fakeRWC) written() [][]byte {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([][]byte(nil), f.writes...)
 }
 
 func (f *fakeRWC) Read(p []byte) (int, error) {
@@ -26,11 +35,13 @@ func (f *fakeRWC) Read(p []byte) (int, error) {
 	return copy(p, b), nil
 }
 func (f *fakeRWC) Write(p []byte) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.writes = append(f.writes, append([]byte(nil), p...))
 	return len(p), nil
 }
 func (f *fakeRWC) Close() error             { return nil }
-func (f *fakeRWC) Address() address.Address { return address.Address{} }
+func (f *fakeRWC) Address() address.Address { return f.addr }
 func (f *fakeRWC) Subnet() address.Subnet   { return address.Subnet{} }
 func (f *fakeRWC) MaxMTU() uint64           { return 65535 }
 func (f *fakeRWC) SetMTU(uint64)            {}
@@ -89,7 +100,7 @@ func newTestInterceptor(t *testing.T) (*dnsInterceptor, *fakeRWC) {
 	}
 	hosts.set(m)
 	inner := &fakeRWC{reads: make(chan []byte)}
-	d := newDNSInterceptor(inner, testDNSAddr, &hosts)
+	d := newDNSInterceptor(inner, testDNSAddr, &hosts, nil)
 	t.Cleanup(d.shutdown)
 	return d, inner
 }
@@ -140,7 +151,7 @@ func TestDNSAnswersKnownName(t *testing.T) {
 	if net.IP(aaaa.AAAA[:]).String() != forumAddr {
 		t.Fatalf("got %s", net.IP(aaaa.AAAA[:]))
 	}
-	if len(inner.writes) != 0 {
+	if len(inner.written()) != 0 {
 		t.Fatal("DNS query leaked to Yggdrasil")
 	}
 }
@@ -164,7 +175,7 @@ func TestDNSPassthrough(t *testing.T) {
 	if _, err := d.Write(pkt); err != nil {
 		t.Fatal(err)
 	}
-	if len(inner.writes) != 1 {
+	if len(inner.written()) != 1 {
 		t.Fatal("non-local packet was not forwarded")
 	}
 

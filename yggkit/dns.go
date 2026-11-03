@@ -67,12 +67,15 @@ func normalizeName(n string) string {
 }
 
 // dnsInterceptor sits between the TUN and Yggdrasil. UDP packets to
-// dnsAddr:53 are answered locally from the host table; everything else passes
-// through untouched. Responses are injected into the TUN's read path.
+// dnsAddr:53 are answered locally from the host table; names it doesn't know
+// are forwarded to upstream ALFIS resolvers (when configured). Everything else
+// passes through untouched. Responses are injected into the TUN's read path.
 type dnsInterceptor struct {
 	tun.ReadWriteCloser
 	dnsAddr [16]byte
 	hosts   *hostTable
+	fwd     *forwarder // nil: unknown names get NXDOMAIN
+	writeMu sync.Mutex // the TUN goroutine and the forwarder both write to Yggdrasil
 
 	once   sync.Once
 	in     chan readResult
@@ -86,8 +89,8 @@ type readResult struct {
 	err error
 }
 
-func newDNSInterceptor(inner tun.ReadWriteCloser, dnsAddr [16]byte, hosts *hostTable) *dnsInterceptor {
-	return &dnsInterceptor{
+func newDNSInterceptor(inner tun.ReadWriteCloser, dnsAddr [16]byte, hosts *hostTable, resolvers [][16]byte) *dnsInterceptor {
+	d := &dnsInterceptor{
 		ReadWriteCloser: inner,
 		dnsAddr:         dnsAddr,
 		hosts:           hosts,
@@ -95,6 +98,33 @@ func newDNSInterceptor(inner tun.ReadWriteCloser, dnsAddr [16]byte, hosts *hostT
 		ack:             make(chan struct{}),
 		inject:          make(chan []byte, 16),
 		closed:          make(chan struct{}),
+	}
+	if len(resolvers) > 0 {
+		self := inner.Address()
+		d.fwd = newForwarder([16]byte(self), dnsAddr, resolvers, d.writeInner, d.deliver)
+	}
+	return d
+}
+
+func (d *dnsInterceptor) writeInner(b []byte) {
+	d.writeMu.Lock()
+	defer d.writeMu.Unlock()
+	_, _ = d.ReadWriteCloser.Write(b)
+}
+
+// deliver queues a packet for the TUN; drops it if the reader is backed up
+// (the client will retry).
+func (d *dnsInterceptor) deliver(b []byte) {
+	select {
+	case d.inject <- b:
+	default:
+	}
+}
+
+func (d *dnsInterceptor) start() {
+	go d.pump()
+	if d.fwd != nil {
+		go d.fwd.run(d.closed)
 	}
 }
 
@@ -117,29 +147,44 @@ func (d *dnsInterceptor) pump() {
 }
 
 func (d *dnsInterceptor) Read(p []byte) (int, error) {
-	d.once.Do(func() { go d.pump() })
-	select {
-	case b := <-d.inject:
-		return copy(p, b), nil
-	case r := <-d.in:
-		n := copy(p, r.b)
-		d.ack <- struct{}{}
-		return n, r.err
-	case <-d.closed:
-		return 0, io.EOF
+	d.once.Do(d.start)
+	for {
+		select {
+		case b := <-d.inject:
+			return copy(p, b), nil
+		case r := <-d.in:
+			if d.fwd != nil && r.err == nil {
+				if out, ok := d.fwd.handleReply(r.b); ok {
+					d.ack <- struct{}{}
+					if out == nil {
+						continue // stray upstream answer: nothing for the TUN
+					}
+					return copy(p, out), nil
+				}
+			}
+			n := copy(p, r.b)
+			d.ack <- struct{}{}
+			return n, r.err
+		case <-d.closed:
+			return 0, io.EOF
+		}
 	}
 }
 
 func (d *dnsInterceptor) Write(p []byte) (int, error) {
 	if q, ok := d.matchDNS(p); ok {
-		if resp := d.answer(p, q); resp != nil {
-			select {
-			case d.inject <- resp:
-			default: // reader is backed up; drop, the client will retry
-			}
+		payload, found, err := d.resolve(q)
+		switch {
+		case err != nil:
+		case !found && d.fwd != nil:
+			d.fwd.forward([16]byte(p[8:24]), binary.BigEndian.Uint16(p[40:42]), q)
+		default:
+			d.deliver(udp6Packet(d.dnsAddr, [16]byte(p[8:24]), 53, binary.BigEndian.Uint16(p[40:42]), payload))
 		}
 		return len(p), nil
 	}
+	d.writeMu.Lock()
+	defer d.writeMu.Unlock()
 	return d.ReadWriteCloser.Write(p)
 }
 
@@ -177,38 +222,18 @@ func (d *dnsInterceptor) matchDNS(p []byte) ([]byte, bool) {
 	return p[48 : 40+udpLen], true
 }
 
-// answer builds a full IPv6/UDP response packet for the query in req.
-func (d *dnsInterceptor) answer(req, query []byte) []byte {
-	payload, err := d.resolve(query)
-	if err != nil {
-		return nil
-	}
-	pkt := make([]byte, 48+len(payload))
-	pkt[0] = 0x60
-	binary.BigEndian.PutUint16(pkt[4:6], uint16(8+len(payload)))
-	pkt[6] = 17 // UDP
-	pkt[7] = 64 // hop limit
-	copy(pkt[8:24], d.dnsAddr[:])
-	copy(pkt[24:40], req[8:24]) // back to the original source
-	binary.BigEndian.PutUint16(pkt[40:42], 53)
-	copy(pkt[42:44], req[40:42]) // original source port
-	binary.BigEndian.PutUint16(pkt[44:46], uint16(8+len(payload)))
-	copy(pkt[48:], payload)
-	binary.BigEndian.PutUint16(pkt[46:48], udp6Checksum(pkt))
-	return pkt
-}
-
-// resolve answers from the host table. Unknown names get NXDOMAIN; known
-// names asked for anything but AAAA get NOERROR with no answers (NODATA).
-func (d *dnsInterceptor) resolve(query []byte) ([]byte, error) {
+// resolve answers from the host table. found=false means the name is not in
+// the table (the payload is then an NXDOMAIN, used when there's no forwarder);
+// known names asked for anything but AAAA get NOERROR with no answers (NODATA).
+func (d *dnsInterceptor) resolve(query []byte) (payload []byte, found bool, err error) {
 	var p dnsmessage.Parser
 	hdr, err := p.Start(query)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	q, err := p.Question()
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	rhdr := dnsmessage.Header{
@@ -226,21 +251,22 @@ func (d *dnsInterceptor) resolve(query []byte) ([]byte, error) {
 	b := dnsmessage.NewBuilder(make([]byte, 0, 512), rhdr)
 	b.EnableCompression()
 	if err := b.StartQuestions(); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if err := b.Question(q); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if found && q.Type == dnsmessage.TypeAAAA && q.Class == dnsmessage.ClassINET {
 		if err := b.StartAnswers(); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		rh := dnsmessage.ResourceHeader{Name: q.Name, Class: dnsmessage.ClassINET, TTL: dnsTTL}
 		if err := b.AAAAResource(rh, dnsmessage.AAAAResource{AAAA: addr}); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 	}
-	return b.Finish()
+	out, err := b.Finish()
+	return out, found, err
 }
 
 // udp6Checksum computes the mandatory UDP checksum over the IPv6 pseudo-header.
