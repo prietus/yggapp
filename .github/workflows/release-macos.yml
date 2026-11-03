@@ -12,17 +12,11 @@ on:
         required: true
         default: "0.1.0"
 
-permissions:
-  contents: write   # to create the GitHub release on tags
-
-concurrency:
-  group: release-macos-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
   build:
     runs-on: macos-26  # same image as the other release workflows on this account
-    timeout-minutes: 60
+    permissions:
+      contents: write   # to create the GitHub release on tags
     env:
       # Build numbers must keep increasing: macOS only replaces the system
       # extension when its CFBundleVersion changes.
