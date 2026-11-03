@@ -23,6 +23,11 @@ enum VPNControl {
         manager.protocolConfiguration = proto
         manager.localizedDescription = "YggApp"
         manager.isEnabled = true
+        let store = SharedStore()
+        var config = proto.providerConfiguration ?? [:]
+        config[ProviderConfigKey.peers] = store.peers
+        config[ProviderConfigKey.hosts] = store.alfisHostsJSON ?? "{}"
+        proto.providerConfiguration = config
         return manager
     }
 
@@ -46,6 +51,13 @@ enum VPNControl {
     /// Re-applies On Demand after the user flips "connect automatically" while connected.
     static func updateOnDemand(_ manager: NETunnelProviderManager, tunnelOn: Bool) async throws {
         applyOnDemand(to: manager, enabled: tunnelOn && SharedStore().autoConnect)
+        try await manager.saveToPreferences()
+    }
+
+    /// Persists the current peers/names into the profile so the extension sees
+    /// them on its next start (including On Demand starts with no app running).
+    static func saveProviderConfiguration(_ manager: NETunnelProviderManager) async throws {
+        _ = try await preparedManager(existing: manager)
         try await manager.saveToPreferences()
     }
 

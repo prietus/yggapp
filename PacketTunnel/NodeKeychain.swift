@@ -23,6 +23,29 @@ enum NodeKeychain {
          kSecAttrAccount as String: account]
     }
 
+    #if os(macOS)
+    // The macOS tunnel is a system extension running as root, where the login
+    // keychain isn't available. Keep the config in its sandbox container,
+    // readable by root only.
+    private static var fileURL: URL {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("YggApp", isDirectory: true)
+        return dir.appendingPathComponent("node-config.json")
+    }
+
+    static func load() throws -> String? {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
+        return try String(contentsOf: fileURL, encoding: .utf8)
+    }
+
+    static func save(_ config: String) throws {
+        let fm = FileManager.default
+        try fm.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true,
+                               attributes: [.posixPermissions: 0o700])
+        try Data(config.utf8).write(to: fileURL, options: [.atomic])
+        try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+    }
+    #else
     static func load() throws -> String? {
         var query = baseQuery
         query[kSecReturnData as String] = true
@@ -47,4 +70,5 @@ enum NodeKeychain {
         }
         guard status == errSecSuccess else { throw KeychainError.status(status) }
     }
+    #endif
 }

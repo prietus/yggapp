@@ -3,7 +3,12 @@ import Foundation
 /// Identifiers shared by the app and the packet tunnel extension.
 enum AppIDs {
     static let appGroup = "group.com.prietus.yggapp"
+    #if os(macOS)
+    /// macOS runs the tunnel as a system extension (Developer ID distribution).
+    static let tunnelBundleID = "com.prietus.yggapp.mac.tunnel"
+    #else
     static let tunnelBundleID = "com.prietus.yggapp.tunnel"
+    #endif
     /// Control Center toggle (YggWidgets extension).
     static let controlKind = "com.prietus.yggapp.control"
 }
@@ -24,14 +29,23 @@ enum AlfisDNS {
     static let testName = "forum.ygg"
 }
 
+/// Keys in NETunnelProviderProtocol.providerConfiguration, used to hand the
+/// extension its peers and names at start when it can't read SharedStore.
+enum ProviderConfigKey {
+    static let peers = "peers"
+    static let hosts = "hostsJSON"
+}
+
 /// App ↔ extension messages (sent with NETunnelProviderSession.sendProviderMessage).
 enum TunnelRequest: Codable {
     case status
     case addPeer(String)
     case removePeer(String)
     case retryPeers
-    /// Reload the name table from SharedStore.alfisHostsJSON.
+    /// Reload the name table from SharedStore.alfisHostsJSON (iOS, shared App Group).
     case reloadHosts
+    /// Replace the name table with this JSON (works without a shared container, e.g. macOS).
+    case setHosts(String)
 }
 
 struct TunnelStatus: Codable, Equatable {
@@ -74,7 +88,13 @@ struct PeerStatus: Codable, Equatable, Identifiable {
 /// The node config (private key) is NOT here: it lives in the extension's
 /// keychain (NodeKeychain). `configJSON` only exists to migrate old installs.
 struct SharedStore {
+    #if os(macOS)
+    // The macOS system extension runs as root and cannot see the app's group
+    // container; the app passes peers/names via providerConfiguration and IPC.
+    private let defaults = UserDefaults.standard
+    #else
     private let defaults = UserDefaults(suiteName: AppIDs.appGroup)!
+    #endif
 
     var peers: [String] {
         get { defaults.stringArray(forKey: "peers") ?? [] }

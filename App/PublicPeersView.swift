@@ -66,7 +66,8 @@ struct PublicPeersView: View {
             }
             .overlay { if loading { ProgressView() } }
             .navigationTitle("Public peers")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
+            .macSheetSize()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
                 ToolbarItem(placement: .primaryAction) {

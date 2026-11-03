@@ -33,9 +33,11 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private var lastPath: String?
 
     override func startTunnel(options: [String: NSObject]?) async throws {
-        let config = try loadConfig(withPeers: store.peers)
+        let provided = (protocolConfiguration as? NETunnelProviderProtocol)?.providerConfiguration
+        let peers = provided?[ProviderConfigKey.peers] as? [String] ?? store.peers
+        let config = try loadConfig(withPeers: peers)
         try node.start(config, logger: coreLogger)
-        reloadHosts()
+        setHosts(provided?[ProviderConfigKey.hosts] as? String ?? store.alfisHostsJSON ?? "{}")
 
         let address = node.address()
         store.lastAddress = address
@@ -91,7 +93,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             case .addPeer(let uri): try node.addPeer(uri)
             case .removePeer(let uri): try node.removePeer(uri)
             case .retryPeers: node.retryPeers()
-            case .reloadHosts: reloadHosts()
+            case .reloadHosts: setHosts(store.alfisHostsJSON ?? "{}")
+            case .setHosts(let json): setHosts(json)
             }
             response = status()
         } catch {
@@ -136,9 +139,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         return settings
     }
 
-    private func reloadHosts() {
+    private func setHosts(_ json: String) {
         do {
-            try node.setHostsJSON(store.alfisHostsJSON ?? "{}")
+            try node.setHostsJSON(json)
             log.info("hosts: \(self.node.hostCount()) names loaded")
         } catch {
             log.error("hosts: \(error.localizedDescription, privacy: .public)")

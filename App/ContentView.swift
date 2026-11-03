@@ -7,7 +7,7 @@ struct ContentView: View {
 
     var body: some View {
         NavigationStack {
-            List {
+            SettingsList {
                 Section {
                     Toggle(isOn: Binding(
                         get: { tunnel.isConnected || tunnel.vpnStatus == .connecting },
@@ -45,6 +45,11 @@ struct ContentView: View {
                 Section("Peers") {
                     ForEach(tunnel.peers, id: \.self) { uri in
                         PeerRow(uri: uri, live: tunnel.status?.peers.first { $0.uri == uri })
+                            .contextMenu {
+                                Button("Remove Peer", role: .destructive) {
+                                    Task { await tunnel.removePeer(uri) }
+                                }
+                            }
                     }
                     .onDelete { idx in
                         let uris = idx.map { tunnel.peers[$0] }
@@ -52,9 +57,7 @@ struct ContentView: View {
                     }
                     HStack {
                         TextField("tls://host:port", text: $newPeer)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .keyboardType(.URL)
+                            .plainURLInput()
                             .font(.callout.monospaced())
                             .onSubmit(add)
                         Button("Add", action: add).disabled(newPeer.isEmpty)
@@ -68,9 +71,12 @@ struct ContentView: View {
 
                 DNSSection()
 
+                #if os(iOS)
+                // macOS system extensions have no 50 MB jetsam limit.
                 if let memory = tunnel.status?.memory {
                     MemorySection(memory: memory)
                 }
+                #endif
 
                 let inbound = tunnel.status?.peers.filter { !tunnel.peers.contains($0.uri) } ?? []
                 if !inbound.isEmpty {

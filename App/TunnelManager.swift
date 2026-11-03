@@ -1,7 +1,9 @@
 import Foundation
 import NetworkExtension
 import SwiftUI
+#if os(iOS)
 import WidgetKit
+#endif
 
 /// Owns the VPN configuration and talks to the packet tunnel extension.
 @MainActor
@@ -73,12 +75,14 @@ final class TunnelManager: ObservableObject {
         }
         peers.append(uri)
         store.peers = peers
+        await persistProviderConfiguration()
         if isConnected { await send(.addPeer(uri)) }
     }
 
     func removePeer(_ uri: String) async {
         peers.removeAll { $0 == uri }
         store.peers = peers
+        await persistProviderConfiguration()
         if isConnected { await send(.removePeer(uri)) }
     }
 
@@ -109,7 +113,8 @@ final class TunnelManager: ObservableObject {
             store.alfisHostsUpdated = Date()
             hostsUpdated = store.alfisHostsUpdated
             hostsCount = result.hosts.count
-            await send(.reloadHosts)
+            await persistProviderConfiguration()
+            await send(.setHosts(store.alfisHostsJSON ?? "{}"))
         } catch {
             lastError = "Directory sync: \(error.localizedDescription)"
         }
@@ -153,6 +158,17 @@ final class TunnelManager: ObservableObject {
 
     // MARK: - Private
 
+    /// The extension reads peers/names from the VPN profile at start (the macOS
+    /// system extension can't see SharedStore), so keep the profile current.
+    private func persistProviderConfiguration() async {
+        guard let manager else { return }
+        do {
+            try await VPNControl.saveProviderConfiguration(manager)
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
     private func observe(_ manager: NETunnelProviderManager) {
         if let observer { NotificationCenter.default.removeObserver(observer) }
         vpnStatus = manager.connection.status
@@ -166,9 +182,11 @@ final class TunnelManager: ObservableObject {
 
     private func statusChanged() {
         vpnStatus = manager?.connection.status ?? .invalid
+        #if os(iOS)
         if #available(iOS 18.0, *) {
             ControlCenter.shared.reloadControls(ofKind: AppIDs.controlKind)
         }
+        #endif
         if isConnected {
             startPolling()
             syncHostsIfStale()
@@ -201,6 +219,7 @@ final class TunnelManager: ObservableObject {
         }
         guard let reply, let decoded = try? JSONDecoder().decode(TunnelStatus.self, from: reply) else { return }
         status = decoded
+        if !decoded.address.isEmpty { store.lastAddress = decoded.address }
         if let err = decoded.error { lastError = err }
     }
 }
