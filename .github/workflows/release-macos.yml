@@ -14,7 +14,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14  # newer macOS images (latest, 26) often queue for minutes; 14 starts in seconds
+    runs-on: macos-26  # Xcode 26.x: apps built with an older SDK get the legacy look on current macOS
     permissions:
       contents: write   # to create the GitHub release on tags
     env:
