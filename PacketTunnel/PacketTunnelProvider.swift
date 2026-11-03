@@ -35,6 +35,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     override func startTunnel(options: [String: NSObject]?) async throws {
         let provided = (protocolConfiguration as? NETunnelProviderProtocol)?.providerConfiguration
         let peers = provided?[ProviderConfigKey.peers] as? [String] ?? store.peers
+        log.info("start: providerConfiguration keys \((provided?.keys.sorted() ?? []).joined(separator: ","), privacy: .public); \(peers.count) peers")
         let config = try loadConfig(withPeers: peers)
         try node.start(config, logger: coreLogger)
         setHosts(provided?[ProviderConfigKey.hosts] as? String ?? store.alfisHostsJSON ?? "{}")
@@ -91,10 +92,13 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             switch request {
             case .status: break
             case .addPeer(let uri): try node.addPeer(uri)
-            case .removePeer(let uri): try node.removePeer(uri)
+            case .removePeer(let uri): removePeerIfConfigured(uri)
             case .retryPeers: node.retryPeers()
             case .reloadHosts: setHosts(store.alfisHostsJSON ?? "{}")
             case .setHosts(let json): setHosts(json)
+            case .sync(let peers, let hostsJSON):
+                syncPeers(peers)
+                setHosts(hostsJSON)
             }
             response = status()
         } catch {
@@ -137,6 +141,32 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         settings.dnsSettings = dns
         log.info("dns: \(dnsAddress, privacy: .public) for \(AlfisDNS.zones.count) zones")
         return settings
+    }
+
+    /// Removing a peer the node doesn't have is not an error worth showing.
+    private func removePeerIfConfigured(_ uri: String) {
+        do {
+            try node.removePeer(uri)
+        } catch {
+            log.info("remove \(uri, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Adds missing peers and removes ones the app no longer has (outbound only).
+    private func syncPeers(_ wanted: [String]) {
+        let current = Set(currentPeers().filter { !$0.inbound }.map(\.uri))
+        let target = Set(wanted)
+        for uri in target.subtracting(current) {
+            do { try node.addPeer(uri) } catch {
+                log.error("sync add \(uri, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        for uri in current.subtracting(target) { removePeerIfConfigured(uri) }
+        log.info("sync: \(target.count) peers (was \(current.count))")
+    }
+
+    private func currentPeers() -> [PeerStatus] {
+        (try? JSONDecoder().decode([PeerStatus].self, from: Data(node.peersJSON().utf8))) ?? []
     }
 
     private func setHosts(_ json: String) {

@@ -1,9 +1,12 @@
 import Foundation
 import NetworkExtension
 import SwiftUI
+import os
 #if os(iOS)
 import WidgetKit
 #endif
+
+private let appLog = Logger(subsystem: "com.prietus.yggapp", category: "app")
 
 /// Owns the VPN configuration and talks to the packet tunnel extension.
 @MainActor
@@ -26,8 +29,15 @@ final class TunnelManager: ObservableObject {
 
     func load() async {
         do {
-            manager = try await VPNControl.loadManager()
-            if let manager { observe(manager) }
+            let loaded = try await VPNControl.loadManager()
+            let firstLoad = manager == nil
+            manager = loaded
+            if let loaded {
+                observe(loaded)
+                // Keep the saved profile in step with the app's peers/names, so
+                // tunnels started without the app (On Demand) get them too.
+                if firstLoad { await persistProviderConfiguration() }
+            }
         } catch {
             lastError = error.localizedDescription
         }
@@ -161,12 +171,24 @@ final class TunnelManager: ObservableObject {
     /// The extension reads peers/names from the VPN profile at start (the macOS
     /// system extension can't see SharedStore), so keep the profile current.
     private func persistProviderConfiguration() async {
-        guard let manager else { return }
+        guard let manager else {
+            appLog.error("persist: no VPN profile loaded yet")
+            return
+        }
         do {
             try await VPNControl.saveProviderConfiguration(manager)
+            let keys = (manager.protocolConfiguration as? NETunnelProviderProtocol)?.providerConfiguration?.keys.sorted() ?? []
+            appLog.info("persist: saved providerConfiguration keys \(keys.joined(separator: ","), privacy: .public)")
         } catch {
+            appLog.error("persist failed: \(error.localizedDescription, privacy: .public)")
             lastError = error.localizedDescription
         }
+    }
+
+    /// Push the app's peers and names to the running tunnel. Done on every
+    /// connect so the tunnel is right even if it started with stale settings.
+    private func syncTunnel() async {
+        await send(.sync(peers: peers, hostsJSON: store.alfisHostsJSON ?? "{}"))
     }
 
     private func observe(_ manager: NETunnelProviderManager) {
@@ -181,6 +203,7 @@ final class TunnelManager: ObservableObject {
     }
 
     private func statusChanged() {
+        let wasConnected = isConnected
         vpnStatus = manager?.connection.status ?? .invalid
         #if os(iOS)
         if #available(iOS 18.0, *) {
@@ -188,6 +211,7 @@ final class TunnelManager: ObservableObject {
         }
         #endif
         if isConnected {
+            if !wasConnected { Task { await syncTunnel() } }
             startPolling()
             syncHostsIfStale()
         } else {

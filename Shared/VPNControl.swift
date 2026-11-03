@@ -1,5 +1,6 @@
 import Foundation
 import NetworkExtension
+import os
 
 /// Turns the tunnel on/off. Shared by the app and the Control Center widget so
 /// both apply the same On Demand rules.
@@ -20,14 +21,16 @@ enum VPNControl {
         let proto = (manager.protocolConfiguration as? NETunnelProviderProtocol) ?? NETunnelProviderProtocol()
         proto.providerBundleIdentifier = AppIDs.tunnelBundleID
         proto.serverAddress = "Yggdrasil"
-        manager.protocolConfiguration = proto
-        manager.localizedDescription = "YggApp"
-        manager.isEnabled = true
         let store = SharedStore()
         var config = proto.providerConfiguration ?? [:]
         config[ProviderConfigKey.peers] = store.peers
         config[ProviderConfigKey.hosts] = store.alfisHostsJSON ?? "{}"
         proto.providerConfiguration = config
+        // protocolConfiguration is a `copy` property: assign only after the
+        // protocol is fully set up, or later changes to `proto` are lost.
+        manager.protocolConfiguration = proto
+        manager.localizedDescription = "YggApp"
+        manager.isEnabled = true
         return manager
     }
 
@@ -40,6 +43,9 @@ enum VPNControl {
         applyOnDemand(to: manager, enabled: on && SharedStore().autoConnect)
         try await manager.saveToPreferences()
         try await manager.loadFromPreferences() // required before the first start
+        let keys = (manager.protocolConfiguration as? NETunnelProviderProtocol)?.providerConfiguration?.keys.sorted() ?? []
+        Logger(subsystem: "com.prietus.yggapp", category: "vpn")
+            .info("setEnabled(\(on)): profile saved, providerConfiguration keys \(keys.joined(separator: ","), privacy: .public)")
         if on {
             try manager.connection.startVPNTunnel()
         } else {

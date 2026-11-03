@@ -46,6 +46,10 @@ enum TunnelRequest: Codable {
     case reloadHosts
     /// Replace the name table with this JSON (works without a shared container, e.g. macOS).
     case setHosts(String)
+    /// Sent by the app whenever the tunnel connects: make the running node's
+    /// configured peers and name table match the app's, whatever the tunnel
+    /// started with.
+    case sync(peers: [String], hostsJSON: String)
 }
 
 struct TunnelStatus: Codable, Equatable {
