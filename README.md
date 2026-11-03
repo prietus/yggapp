@@ -1,8 +1,19 @@
 # YggApp
 
-A native iOS client for the [Yggdrasil Network](https://yggdrasil-network.github.io/): an end-to-end encrypted IPv6 overlay mesh. Your iPhone gets its own `200::/7` address and can reach any Yggdrasil node or service directly, alongside your normal internet.
+A native iOS and macOS client for the [Yggdrasil Network](https://yggdrasil-network.github.io/): an end-to-end encrypted IPv6 overlay mesh. Your iPhone or Mac gets its own `200::/7` address and can reach any Yggdrasil node or service directly, alongside your normal internet.
 
-> **Status: alpha.** Every feature below has been tested on a real iPhone, but the app is not on the App Store or TestFlight. To use it you need to build it yourself (see [Building](#building)).
+> **Status: alpha.** Every feature below has been tested on a real iPhone and Mac. The macOS app can be downloaded below. The iOS app is not on the App Store or TestFlight yet, so on iPhone you need to build it yourself (see [Building](#building)).
+
+## Download for macOS
+
+**[Download the latest YggApp for macOS (.dmg)](https://github.com/prietus/yggapp/releases/latest)**: signed with Developer ID and notarized by Apple.
+
+- **Requirements:** macOS 14 Sonoma or later, Apple silicon or Intel.
+- **Install:** open the DMG and drag **YggApp** to **Applications**. It has to be in Applications for macOS to load its network extension.
+- **First launch:** YggApp lives in the menu bar (the connected-nodes icon), not the Dock. macOS will ask you to allow its network extension in **System Settings → General → Login Items & Extensions**, and the first time you connect it asks to add a VPN configuration.
+- **Peers:** open **Open YggApp… → Browse public peers** and use **Add fastest**. After that, Safari opens `.ygg` sites such as `http://forum.ygg/` directly.
+
+The menu bar panel has the same switches as the iOS app: connect, connect automatically, your address and live peers. The full window has peers, the public peer picker and the `.ygg` name table.
 
 <p align="center">
   <img src="docs/screenshots/network.png" width="200" alt="Network tab: online with 4 peers and 11 routes">
@@ -57,6 +68,8 @@ Before you run it on a device, replace my identifiers with your own:
 - `Shared/Shared.swift`: `AppIDs` (the App Group and tunnel bundle ID)
 
 With automatic signing, Xcode registers the App IDs with the Network Extension and App Group capabilities.
+
+**macOS:** build the `YggAppMac` scheme. The tunnel is a system extension, so macOS only activates it when the app runs from `/Applications`: copy the built `YggApp.app` there before launching it. Release builds are made by `release/release-macos.sh` (Developer ID signing, notarization and DMG), which the [macOS release workflow](.github/workflows/release-macos.yml) runs on every `v*` tag.
 
 ## Testing
 
