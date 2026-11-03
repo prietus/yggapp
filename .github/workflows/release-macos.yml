@@ -14,7 +14,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-26  # same image as the other release workflows on this account
+    runs-on: macos-latest
     permissions:
       contents: write   # to create the GitHub release on tags
     env:
