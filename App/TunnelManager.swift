@@ -185,6 +185,21 @@ final class TunnelManager: ObservableObject {
         }
     }
 
+    /// While the tunnel is up and "Connect automatically" is on, On Demand must
+    /// be armed so macOS/iOS bring the tunnel back if it drops (sleep, network
+    /// change, extension restart). Tunnels started some other way (scutil, a
+    /// reinstall, System Settings) come up without it. A user disconnect still
+    /// sticks: this only arms while connected, and disconnecting disarms.
+    private func ensureOnDemand() async {
+        guard autoConnect, isConnected, let manager, !manager.isOnDemandEnabled else { return }
+        do {
+            try await VPNControl.updateOnDemand(manager, tunnelOn: true)
+            appLog.info("On Demand was off while connected; re-armed")
+        } catch {
+            appLog.error("re-arming On Demand failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
     /// Push the app's peers and names to the running tunnel. Done on every
     /// connect so the tunnel is right even if it started with stale settings.
     private func syncTunnel() async {
@@ -211,7 +226,12 @@ final class TunnelManager: ObservableObject {
         }
         #endif
         if isConnected {
-            if !wasConnected { Task { await syncTunnel() } }
+            if !wasConnected {
+                Task {
+                    await syncTunnel()
+                    await ensureOnDemand()
+                }
+            }
             startPolling()
             syncHostsIfStale()
         } else {
